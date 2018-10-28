@@ -7,10 +7,13 @@ typedef struct ServerObj* Server;
 
 typedef void(*Handler)(Request, Response);
 
+// A String wrapper is helpful for passing around slices of buffers.
+// A macro CString is provided to turn constant char arrays into Strings.
 typedef struct String {
 	char *chars;
 	size_t len;
 } String;
+#define CString(X) (String){.chars=X,.len=sizeof(X)-1}
 
 #define resp_write(R, ...) do{\
 	int _bytes_written = snprintf(resp_buf(R), resp_nleft(R), __VA_ARGS__);\
