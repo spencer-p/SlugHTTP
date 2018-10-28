@@ -1,4 +1,4 @@
-CCFLAGS += -std=gnu11\
+CFLAGS += -std=gnu11\
 		   -Wall -Werror -pedantic\
 		   -O3
 

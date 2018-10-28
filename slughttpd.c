@@ -15,7 +15,8 @@
 	printf("%s -- ", _log_t_buf);\
 	printf(__VA_ARGS__);putchar('\n');}while(0)
 
-#define die(...) do{int errsave=errno;log(__VA_ARGS__);perror("Error");exit(1);}while(0)
+#define die(...) do{int errsave=errno;log(__VA_ARGS__);\
+	printf("Error: %s\n", strerror(errsave));exit(errsave);}while(0)
 
 #define BUFSIZE 8096
 
@@ -49,6 +50,7 @@ void resp_status(Response r, int n) {
 
 typedef struct RequestObj {
 	char *buf;
+	size_t len;
 } RequestObj;
 
 String req_path(Request r) {
@@ -63,8 +65,8 @@ String req_path(Request r) {
 
 String req_post_arg(Request r, String arg_name) {
 	// Painfully and inefficiently finds the argument specified.
-	int i = BUFSIZE;
-	for (int i = BUFSIZE; r->buf[i] != '*'; i--) {
+	// This procedure is incredibly naive. No sane person should ever use this.
+	for (int i = r->len-1; r->buf[i] != '*'; i--) {
 		if ((r->buf[i-1] == '*' || r->buf[i-1] == '&')
 				&& strncmp(r->buf+i, arg_name.chars, arg_name.len) == 0) {
 			// Found it.
@@ -72,9 +74,9 @@ String req_post_arg(Request r, String arg_name) {
 			// and equals sign.
 			i += 1+arg_name.len;
 			int len;
-			for (len = 1; r->buf[i+len-1] != '&'
-					&& r->buf[i+len-1] != '*'
-					&& r->buf[i+len-1] != '\0';
+			for (len = 1; r->buf[i+len] != '&'
+					&& r->buf[i+len] != '*'
+					&& r->buf[i+len] != '\0';
 					len++);
 			return (String) {.chars = r->buf+i, .len = len};
 		}
@@ -82,12 +84,14 @@ String req_post_arg(Request r, String arg_name) {
 	return (String) { .chars = NULL, .len = 0, };
 }
 
+typedef struct PathedHandler {
+	const char *path;
+	Handler h;
+} PathedHandler;
+
 typedef struct ServerObj {
 	int port, nhandlers;
-	struct handler_info {
-		const char *path;
-		Handler h;
-	} *handlers;
+	struct PathedHandler *handlers;
 	Acceptor acceptor;
 } ServerObj;
 
@@ -98,13 +102,20 @@ Server new_server(int port, bool multiprocess) {
 	return s;
 }
 
+void free_server(Server *sp) {
+	Server s = *sp;
+	free(s->handlers);
+	free(s);
+	*sp = NULL;
+}
+
 void accept_and_handle(Server s, int fd) {
 	s->acceptor(s, fd);
 }
 
 int handle_path(Server s, const char *path, Handler h) {
 	s->nhandlers += 1;
-	s->handlers = realloc(s->handlers, s->nhandlers);
+	s->handlers = realloc(s->handlers, s->nhandlers*sizeof(PathedHandler));
 	if (s->handlers == NULL) {
 		return -1;
 	}
@@ -148,10 +159,12 @@ void handle_thread(Server s, int fd) {
 	if (ret > 0 && ret < BUFSIZE) {
 		// Add null terminator if we read a valid size
 		req.buf[ret] = '\0';
+		req.len = ret;
 	}
 	else {
 		// Not sure what this is about.
 		req.buf[0] = '\0';
+		req.len = 0;
 	}
 
 	// Dispose of line breaks and such
@@ -163,7 +176,7 @@ void handle_thread(Server s, int fd) {
 
 	String path = req_path(&req);
 
-	log("Request: %.*s", path.len, path.chars);
+	log("Request: %.*s", (int)path.len, path.chars);
 
 	Handler h = get_handler(s, path);
 	if (h == NULL) {
@@ -171,9 +184,9 @@ void handle_thread(Server s, int fd) {
 	}
 	h(&req, &resp);
 
-	dprintf(fd, "HTTP/1.1 %d OK\nServer: spence/1.0\nContent-Length: %d\nConnection: close\nContent-Type: text/html\n\n", resp.status, resp.bufi);
+	dprintf(fd, "HTTP/1.1 %d OK\nServer: spence/1.0\nContent-Length: %ld\nConnection: close\nContent-Type: text/html\n\n", resp.status, resp.bufi);
 	dprintf(fd, "%s", resp.buf);
-	log("Respond: %.*s %d: %d bytes", path.len, path.chars, resp.status, resp.bufi);
+	log("Respond: %.*s %d: %ld bytes", (int)path.len, path.chars, resp.status, resp.bufi);
 
 	//sleep(1); // Apparently to flush the socket?
 	close(fd);
