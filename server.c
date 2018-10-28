@@ -21,6 +21,10 @@
 
 void not_found(Request req, Response resp);
 
+typedef void(*Acceptor)(Server s, int listenfd);
+void accept_fork(Server s, int listenfd);
+void accept_nofork(Server s, int listenfd);
+
 typedef struct ResponseObj {
 	char *buf;
 	size_t bufi;
@@ -84,12 +88,18 @@ typedef struct ServerObj {
 		const char *path;
 		Handler h;
 	} *handlers;
+	Acceptor acceptor;
 } ServerObj;
 
-Server new_server(int port) {
+Server new_server(int port, bool multiprocess) {
 	Server s = calloc(1, sizeof(ServerObj));
 	s->port = port;
+	s->acceptor = multiprocess ? accept_fork : accept_nofork;
 	return s;
+}
+
+void accept_and_handle(Server s, int fd) {
+	s->acceptor(s, fd);
 }
 
 int handle_path(Server s, const char *path, Handler h) {
@@ -125,6 +135,10 @@ void handle_thread(Server s, int fd) {
 		.bufi = 0,
 		.status = 200,
 	};
+
+	// Clear the response object for the nofork case
+	resp.bufi = 0;
+	resp.status = 200;
 
 	ret = read(fd, req.buf, BUFSIZE);
 	if (ret == 0 || ret == -1) {
@@ -167,7 +181,7 @@ void handle_thread(Server s, int fd) {
 }
 
 void serve_forever(Server s) {
-	int listenfd, socketfd, pid;
+	int listenfd;
 	static struct sockaddr_in serv_addr;
 
 	if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -191,26 +205,7 @@ void serve_forever(Server s) {
 	}
 
 	for (;;) {
-		if ((socketfd = accept(listenfd, NULL, NULL)) < 0) {
-			log("Error accepting socket connection");
-			perror("accept");
-			die("listenfd is %d", listenfd);
-		}
-		if ((pid = fork()) < 0) {
-			log("Could not fork to handle request");
-		}
-		else {
-			if (pid == 0) {
-				// Child handles request
-				(void) close(listenfd);
-				handle_thread(s, socketfd);
-				exit(EXIT_SUCCESS);
-			}
-			else {
-				// Parent closes and moves to next
-				(void) close(socketfd);
-			}
-		}
+		accept_and_handle(s, listenfd);
 	}
 }
 
@@ -221,4 +216,38 @@ void serve_forever(Server s) {
 void not_found(Request req, Response resp) {
 	resp_status(resp, 404);
 	resp_write(resp, "Not found");
+}
+
+void accept_fork(Server s, int listenfd) {
+	int socketfd, pid;
+	if ((socketfd = accept(listenfd, NULL, NULL)) < 0) {
+		log("Error accepting socket connection");
+		return;
+	}
+
+	if ((pid = fork()) < 0) {
+		log("Could not fork to handle request");
+	}
+	else {
+		if (pid == 0) {
+			// Child handles request
+			(void) close(listenfd);
+			handle_thread(s, socketfd);
+			exit(EXIT_SUCCESS);
+		}
+		else {
+			// Parent closes and moves to next
+			(void) close(socketfd);
+		}
+	}
+}
+
+void accept_nofork(Server s, int listenfd) {
+	int socketfd;
+	if ((socketfd = accept(listenfd, NULL, NULL)) < 0) {
+		log("Error accepting socket connection");
+		return;
+	}
+
+	handle_thread(s, socketfd);
 }
