@@ -19,7 +19,7 @@
 
 #define BUFSIZE 8096
 
-void NotFound(Request req, Response resp);
+void not_found(Request req, Response resp);
 
 typedef struct ResponseObj {
 	char *buf;
@@ -153,7 +153,7 @@ void handle_thread(Server s, int fd) {
 
 	Handler h = get_handler(s, path);
 	if (h == NULL) {
-		h = NotFound;
+		h = not_found;
 	}
 	h(&req, &resp);
 
@@ -218,7 +218,7 @@ void serve_forever(Server s) {
  * Internal handlers
  */
 
-void NotFound(Request req, Response resp) {
+void not_found(Request req, Response resp) {
 	resp_status(resp, 404);
 	resp_write(resp, "Not found");
 }
