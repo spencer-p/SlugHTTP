@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,11 @@
 	printf("Error: %s\n", strerror(errsave));exit(errsave);}while(0)
 
 #define BUFSIZE 8096
+
+static bool volatile not_killed = true;
+void killed(int unused) {
+	not_killed = false;
+}
 
 void not_found(Request req, Response resp);
 
@@ -217,9 +223,15 @@ void serve_forever(Server s) {
 		die("Failed to listen to socket");
 	}
 
-	for (;;) {
+	signal(SIGINT, killed);
+	while (not_killed) {
 		accept_and_handle(s, listenfd);
 	}
+
+	// TODO The port doesn't seem to get undbound.
+	(void) shutdown(listenfd, SHUT_RDWR);
+	(void) close(listenfd);
+	free_server(&s);
 }
 
 /*
