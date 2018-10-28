@@ -1,4 +1,4 @@
-#include "server.h"
+#include "slughttpd.h"
 
 #include <arpa/inet.h>
 #include <errno.h>

@@ -1,9 +1,16 @@
-all: main
+CCFLAGS += -std=gnu11\
+		   -Wall -Werror -pedantic\
+		   -O3
 
-main: server.o
+LIB := slughttpd.o
+APP := main
+
+all: $(APP)
+
+$(APP): $(LIB)
 
 run: all
-	./main
+	./$(APP)
 
 clean:
-	rm -rf server.o main
+	rm -rf $(APP) $(LIB)
