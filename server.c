@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
@@ -18,44 +19,154 @@
 
 #define BUFSIZE 8096
 
-void web(int fd) {
-	int ret;
-	static char buf[BUFSIZE+1];
-	static char output_buf[BUFSIZE+1];
+void NotFound(Request req, Response resp);
 
-	ret = read(fd, buf, BUFSIZE);
+typedef struct ResponseObj {
+	char *buf;
+	size_t bufi;
+	int status;
+} ResponseObj;
+
+char *resp_buf(Response r) {
+	return r->buf + r->bufi;
+}
+
+int resp_nleft(Response r) {
+	return BUFSIZE - r->bufi;
+}
+
+void resp_wrote_n(Response r, size_t wrote) {
+	r->bufi += wrote;
+}
+
+void resp_status(Response r, int n) {
+	r->status = n;
+}
+
+typedef struct RequestObj {
+	char *buf;
+} RequestObj;
+
+String req_path(Request r) {
+	int i, len;
+	for (i = 0; r->buf[i] != '/'; i++);
+	// i now points to the first leading slash.
+	for (len = 1; r->buf[i+len] != ' '; len++);
+	// i points to the first leading slash, and len points to the last character
+	// before the next space.
+	return (String) {.chars = r->buf+i, .len = len};
+}
+
+String req_post_arg(Request r, String arg_name) {
+	// Painfully and inefficiently finds the argument specified.
+	int i = BUFSIZE;
+	for (int i = BUFSIZE; r->buf[i] != '*'; i--) {
+		if ((r->buf[i-1] == '*' || r->buf[i-1] == '&')
+				&& strncmp(r->buf+i, arg_name.chars, arg_name.len) == 0) {
+			// Found it.
+			// If we have "abcd=1234", i points to the 'a'. Skip the arg chars
+			// and equals sign.
+			i += 1+arg_name.len;
+			int len;
+			for (len = 1; r->buf[i+len-1] != '&'
+					&& r->buf[i+len-1] != '*'
+					&& r->buf[i+len-1] != '\0';
+					len++);
+			return (String) {.chars = r->buf+i, .len = len};
+		}
+	}
+	return (String) { .chars = NULL, .len = 0, };
+}
+
+typedef struct ServerObj {
+	int port, nhandlers;
+	struct handler_info {
+		const char *path;
+		Handler h;
+	} *handlers;
+} ServerObj;
+
+Server new_server(int port) {
+	Server s = calloc(1, sizeof(ServerObj));
+	s->port = port;
+	return s;
+}
+
+int handle_path(Server s, const char *path, Handler h) {
+	s->nhandlers += 1;
+	s->handlers = realloc(s->handlers, s->nhandlers);
+	if (s->handlers == NULL) {
+		return -1;
+	}
+	s->handlers[s->nhandlers-1].path = path;
+	s->handlers[s->nhandlers-1].h = h;
+	return 0;
+}
+
+Handler get_handler(Server s, String path) {
+	// What performance? Did someone say trie? I didn't think so.
+	for (int i = 0; i < s->nhandlers; i++) {
+		if (strncmp(path.chars, s->handlers[i].path, path.len) == 0) {
+			return s->handlers[i].h;
+		}
+	}
+	return NULL;
+}
+
+void handle_thread(Server s, int fd) {
+	int ret;
+	static char req_buf[BUFSIZE+1];
+	static char resp_buf[BUFSIZE+1];
+	static RequestObj req = {
+		.buf = req_buf,
+	};
+	static ResponseObj resp = {
+		.buf = resp_buf,
+		.bufi = 0,
+		.status = 200,
+	};
+
+	ret = read(fd, req.buf, BUFSIZE);
 	if (ret == 0 || ret == -1) {
 		die("Failed to read request");
 	}
 
 	if (ret > 0 && ret < BUFSIZE) {
 		// Add null terminator if we read a valid size
-		buf[ret] = '\0';
+		req.buf[ret] = '\0';
 	}
 	else {
 		// Not sure what this is about.
-		buf[0] = '\0';
+		req.buf[0] = '\0';
 	}
 
 	// Dispose of line breaks and such
 	for (int i = 0; i < ret; i++) {
-		if (buf[i] == '\r' || buf[i] == '\n') {
-			buf[i] = '*';
+		if (req.buf[i] == '\r' || req.buf[i] == '\n') {
+			req.buf[i] = '*';
 		}
 	}
 
-	log("Request: %s", buf);
+	String path = req_path(&req);
 
-	//snprintf(buf, BUFSIZE, "Hello, World!");
-	//(void) write(fd, buf, )
-	dprintf(fd, "HTTP/1.1 200 OK\nServer: spence/1.0\nContent-Length: 14\nConnection: close\nContent-Type: text/html\n\n");
-	dprintf(fd, "Hello, World!");
+	log("Request: %.*s", path.len, path.chars);
 
+	Handler h = get_handler(s, path);
+	if (h == NULL) {
+		h = NotFound;
+	}
+	h(&req, &resp);
+
+	dprintf(fd, "HTTP/1.1 %d OK\nServer: spence/1.0\nContent-Length: %d\nConnection: close\nContent-Type: text/html\n\n", resp.status, resp.bufi);
+	dprintf(fd, "%s", resp.buf);
+	log("Respond: %.*s %d: %d bytes", path.len, path.chars, resp.status, resp.bufi);
+
+	//sleep(1); // Apparently to flush the socket?
 	close(fd);
 	return;
 }
 
-int serve(int port) {
+void serve_forever(Server s) {
 	int listenfd, socketfd, pid;
 	static struct sockaddr_in serv_addr;
 
@@ -68,7 +179,7 @@ int serve(int port) {
 		.sin_addr = {
 			.s_addr = htonl(INADDR_ANY),
 		},
-		.sin_port = htons(port),
+		.sin_port = htons(s->port),
 	};
 
 	if (bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
@@ -92,7 +203,7 @@ int serve(int port) {
 			if (pid == 0) {
 				// Child handles request
 				(void) close(listenfd);
-				web(socketfd);
+				handle_thread(s, socketfd);
 				exit(EXIT_SUCCESS);
 			}
 			else {
@@ -101,6 +212,13 @@ int serve(int port) {
 			}
 		}
 	}
-	
-	return 0;
+}
+
+/*
+ * Internal handlers
+ */
+
+void NotFound(Request req, Response resp) {
+	resp_status(resp, 404);
+	resp_write(resp, "Not found");
 }
