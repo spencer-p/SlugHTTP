@@ -206,6 +206,10 @@ void serve_forever(Server s) {
 	if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		die("Failed to open socket");
 	}
+	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR,
+				&(int){1}, sizeof(int)) < 0) {
+		die("Failed to set socket options");
+	}
 
 	serv_addr = (struct sockaddr_in) {
 		.sin_family = AF_INET,
