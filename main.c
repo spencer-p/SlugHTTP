@@ -1,4 +1,4 @@
-#include "slughttpd.h"
+#include "slughttp.h"
 
 void root(Request req, Response resp) {
 	resp_write(resp,

@@ -2,7 +2,7 @@ CFLAGS += -std=gnu11\
 		   -Wall -Werror -pedantic\
 		   -O3
 
-LIB := slughttpd.o
+LIB := slughttp.o
 APP := main
 
 all: $(APP)

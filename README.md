@@ -1,10 +1,10 @@
-# SlugHttpd
+# SlugHTTP
 
-SlugHttpd is a minimal implementation of an HTTP library in C. It makes setting
+SlugHTTP is a minimal implementation of an HTTP library in C. It makes setting
 up a simple web server in your ~~least~~ favorite language easy:
 
 ```c
-#include "slughttpd.h"
+#include "slughttp.h"
 
 void root(Request req, Response resp) {
 	resp_write(resp, "Hello, World!");
