@@ -17,9 +17,14 @@ int main() {
 }
 ```
 
-That's pretty cool! Unfortunately, that's about it. Performance is not optimal
-(_sluggish_ one might say), and has tight limitations (8 kilobyte maximum
-requests and responses, among other things).
+That's pretty cool! For now, there are some tight limitations that I'm steadily
+working on removing. But it's great for spinning up a dead simple web server or
+just taking a look at how a web server works with raw sockets.
 
-For spinning up a dead simple web server or just seeing how a web server works
-with raw sockets.
+## Contributing
+
+Open to pull requests!
+
+## Name
+
+It's mostly reference to UC Santa Cruz.
