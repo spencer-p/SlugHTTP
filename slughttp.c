@@ -22,8 +22,8 @@
 #define BUFSIZE 8096
 
 static bool volatile not_killed = true;
-void killed(int unused) {
-	(void) unused;
+void killed(int sig) {
+	log("Caught signal %d, will close server after current request", sig);
 	not_killed = false;
 }
 
@@ -100,12 +100,17 @@ typedef struct ServerObj {
 	int port, nhandlers;
 	struct PathedHandler *handlers;
 	Acceptor acceptor;
+
+	bool enable_logging;
+	bool handle_sigint;
 } ServerObj;
 
-Server new_server(int port, bool multiprocess) {
+Server new_server(int port, struct ServerOpts opts) {
 	Server s = calloc(1, sizeof(ServerObj));
 	s->port = port;
-	s->acceptor = multiprocess ? accept_fork : accept_nofork;
+	s->acceptor = opts.multiprocess ? accept_fork : accept_nofork;
+	s->enable_logging = opts.enable_logging;
+	s->handle_sigint = opts.handle_sigint;
 	return s;
 }
 
@@ -183,7 +188,7 @@ void handle_thread(Server s, int fd) {
 
 	String path = req_path(&req);
 
-	log("Request: %.*s", (int)path.len, path.chars);
+	if (s->enable_logging) log("Request: %.*s", (int)path.len, path.chars);
 
 	Handler h = get_handler(s, path);
 	if (h == NULL) {
@@ -193,7 +198,7 @@ void handle_thread(Server s, int fd) {
 
 	dprintf(fd, "HTTP/1.1 %d OK\nServer: spence/1.0\nContent-Length: %ld\nConnection: close\nContent-Type: text/html\n\n", resp.status, resp.bufi);
 	dprintf(fd, "%s", resp.buf);
-	log("Respond: %.*s %d: %ld bytes", (int)path.len, path.chars, resp.status, resp.bufi);
+	if (s->enable_logging) log("Respond: %.*s %d: %ld bytes", (int)path.len, path.chars, resp.status, resp.bufi);
 
 	//sleep(1); // Apparently to flush the socket?
 	close(fd);
@@ -228,7 +233,7 @@ void serve_forever(Server s) {
 		die("Failed to listen to socket");
 	}
 
-	signal(SIGINT, killed);
+	if (s->handle_sigint) signal(SIGINT, killed);
 	while (not_killed) {
 		accept_and_handle(s, listenfd);
 	}

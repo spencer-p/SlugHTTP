@@ -27,7 +27,13 @@ void resp_status(Response r, int n);
 String req_path(Request r);
 String req_post_arg(Request r, String arg_name);
 
-Server new_server(int port, bool multiprocess);
+typedef struct ServerOpts {
+	bool multiprocess;
+	bool handle_sigint;
+	bool enable_logging;
+} ServerOpts;
+
+Server new_server(int port, struct ServerOpts opts);
 int handle_path(Server s, const char *path, Handler h);
 Handler get_handler(Server s, String path);
 void serve_forever(Server s);

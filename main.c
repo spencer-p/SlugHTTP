@@ -1,6 +1,7 @@
 #include "slughttp.h"
 
 void root(Request req, Response resp) {
+	(void) req;
 	resp_write(resp,
 			"<form action='/hello' method='post'>"
 			"Your name:<br>"
@@ -20,7 +21,11 @@ void hello(Request req, Response resp) {
 }
 
 int main() {
-	Server s = new_server(8080, true);
+	ServerOpts opts = (ServerOpts) {
+		.enable_logging = true,
+		.handle_sigint = true,
+	};
+	Server s = new_server(8080, opts);
 	handle_path(s, "/", root);
 	handle_path(s, "/hello", hello);
 	serve_forever(s);
