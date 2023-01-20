@@ -23,6 +23,7 @@
 
 static bool volatile not_killed = true;
 void killed(int unused) {
+	(void) unused;
 	not_killed = false;
 }
 
@@ -243,6 +244,7 @@ void serve_forever(Server s) {
  */
 
 void not_found(Request req, Response resp) {
+	(void) req;
 	resp_status(resp, 404);
 	resp_write(resp, "Not found");
 }
